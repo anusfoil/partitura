@@ -69,7 +69,7 @@ def encode_performance(
     -------
     parameters : structured array
         A performance array with 4 fields: beat_period, velocity,
-        timing, and articulation_log.
+        timing, and articulation_ratio.
         If beat_normalization is defined as any method other than beat_period,
         return the normalization value as extra columns in parameters. 
     snote_ids : dict
@@ -163,7 +163,7 @@ def decode_performance(
     else:
         norm_params = []
     time_params = performance_array[
-        list(("beat_period", "timing", "articulation_log")) + norm_params
+        list(("beat_period", "timing", "articulation_ratio")) + norm_params
     ][sort_idx]
 
     onsets_durations = decode_time(
@@ -262,7 +262,7 @@ def decode_time(score_onsets,
         # decode duration
         performance[jj, 1] = decode_articulation(
             score_durations=score_durations[jj],
-            articulation_parameter=parameters["articulation_log"][jj],
+            articulation_parameter=parameters["articulation_ratio"][jj],
             beat_period=beat_period[i],
         )
 
@@ -289,7 +289,8 @@ def encode_articulation(
         # Grace notes have an articulation ratio of 1
         sd[grace_mask] = 1
         pd[grace_mask] = bp
-        articulation[idx] = np.log2(pd / (bp * sd))
+        # articulation[idx] = np.log2(pd / (bp * sd))
+        articulation[idx] = pd / (bp * sd) # consider absolute ratio instead of log
 
     return articulation
 
@@ -374,11 +375,11 @@ def encode_tempo(
     )
 
     # Initialize array of parameters
-    parameter_names = ["beat_period", "velocity", "timing", "articulation_log"]
+    parameter_names = ["beat_period", "velocity", "timing", "articulation_ratio"]
     if beat_normalization != "beat_period":
         parameter_names += tempo_param_names
     parameters = np.zeros(len(score), dtype=[(pn, "f4") for pn in parameter_names])
-    parameters["articulation_log"] = articulation_param
+    parameters["articulation_ratio"] = articulation_param
     for i, jj in enumerate(unique_onset_idxs):
         parameters["beat_period"][jj] = beat_period[i]
         # Defined as in Eq. (3.9) in Thesis (pp. 34)
@@ -635,6 +636,11 @@ def to_matched_score(score: ScoreLike,
         for a in alignment
         if (a["label"] == "match" and a["score_id"] in part_by_id)
     ]
+    note_pairs.extend([
+        (part_by_id[a["score_id"]], None)
+        for a in alignment
+        if (a["label"] == "deletion" and a["score_id"] in part_by_id)        
+    ])
     ms = []
     # sort according to onset (primary) and pitch (secondary)
     pitch_onset = [(sn['pitch'].item(), sn['onset_div'].item()) for sn, _ in note_pairs]
@@ -645,8 +651,11 @@ def to_matched_score(score: ScoreLike,
         sn_on, sn_off = [sn['onset_beat'], sn['onset_beat'] + sn['duration_beat']]
         sn_dur = sn_off - sn_on
         # hack for notes with negative durations
-        n_dur = max(n["duration_sec"], 60 / 200 * 0.25)
-        pair_info = (sn_on, sn_dur, sn['pitch'], n["onset_sec"], n_dur, n["velocity"])
+        if type(n) == type(None):
+            pair_info = (sn_on, sn_dur, sn['pitch'], -1, -1, -1)
+        else:
+            n_dur = max(n["duration_sec"], 60 / 200 * 0.25)
+            pair_info = (sn_on, sn_dur, sn['pitch'], n["onset_sec"], n_dur, n["velocity"])
         if include_score_markings:
             pair_info += (sn['voice'].item(), )
             pair_info += tuple([sn[field].item() for field in sn.dtype.names if "feature" in field])
