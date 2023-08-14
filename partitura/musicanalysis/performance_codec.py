@@ -69,7 +69,7 @@ def encode_performance(
     -------
     parameters : structured array
         A performance array with 4 fields: beat_period, velocity,
-        timing, and articulation_ratio.
+        timing, and articulation_log.
         If beat_normalization is defined as any method other than beat_period,
         return the normalization value as extra columns in parameters. 
     snote_ids : dict
@@ -79,8 +79,7 @@ def encode_performance(
         is set to True.
     """
 
-    m_score, snote_ids = to_matched_score(score, performance, alignment)
-
+    m_score, snote_ids, pad_mask = to_matched_score(score, performance, alignment)
     # Get time-related parameters
     (time_params, unique_onset_idxs) = encode_tempo(
         score_onsets=m_score["onset"],
@@ -91,18 +90,28 @@ def encode_performance(
         beat_normalization=beat_normalization,
         tempo_smooth=tempo_smooth
     )
-
     # Get dynamics-related parameters
     dynamics_params = np.array(m_score["velocity"] / 127.0, dtype=[("velocity", "f4")])
+
+    # pedal_params
+    onset_offset_pedals, ramp_func = pedal_ramp(performance.performedparts[0], m_score)
 
     # Fixing random error
     parameters = time_params
     parameters["velocity"] = dynamics_params["velocity"]
+    parameters['pedal'] = onset_offset_pedals['onset_value'] / 127.0
+
+    # add dummy value for the padded rows
+    parameters[pad_mask] = (parameters["beat_period"][~pad_mask].mean(), \
+                            parameters["velocity"][~pad_mask].mean(), \
+                            parameters["timing"][~pad_mask].mean(), \
+                            np.nanmean(parameters["articulation_log"][~pad_mask]), \
+                            parameters["pedal"][~pad_mask].mean())
 
     if return_u_onset_idx:
-        return parameters, snote_ids, unique_onset_idxs
+        return parameters, snote_ids, unique_onset_idxs, pad_mask
     else:
-        return parameters, snote_ids
+        return parameters, snote_ids, pad_mask
 
 
 @deprecated_alias(part='score')
@@ -110,6 +119,7 @@ def decode_performance(
     score: ScoreLike,
     performance_array: np.ndarray,
     snote_ids=None,
+    pad_mask=None,
     part_id=None,
     part_name=None,
     return_alignment=False,
@@ -127,6 +137,7 @@ def decode_performance(
     performance_array : structured array
         A performed array related to the part.
     snote_ids : list
+    pad_mask : np.array or None
     part_id : str
     part_name : str
     return_alignment : bool
@@ -148,6 +159,12 @@ def decode_performance(
     else:
         snote_info = snotes[np.isin(snotes['id'], snote_ids)]
 
+    # filter out the unused score note based on the pad_mask
+    if type(pad_mask) == type(None):
+        pad_mask = np.full(snote_info.shape, False)
+    snote_info = snote_info[~pad_mask]
+    performance_array = performance_array[~pad_mask]
+
     # sort
     sort_idx = np.lexsort((snote_info["pitch"], snote_info["onset_div"]))
 
@@ -163,7 +180,7 @@ def decode_performance(
     else:
         norm_params = []
     time_params = performance_array[
-        list(("beat_period", "timing", "articulation_ratio")) + norm_params
+        list(("beat_period", "timing", "articulation_log")) + norm_params
     ][sort_idx]
 
     onsets_durations = decode_time(
@@ -195,6 +212,16 @@ def decode_performance(
         )
     # * rescale according to default values?
     ppart = PerformedPart(id=part_id, part_name=part_name, notes=notes)
+
+    performance_array['pedal'] = np.round(performance_array['pedal'] * 127.0)
+    performance_array['pedal'] = np.clip(performance_array['pedal'], 1, 127)
+
+    sustain_controls = [{
+        "number": 64,
+        "time": onsets_durations[idx][0],
+        "value": pedal_param,
+        } for idx, pedal_param in enumerate(performance_array['pedal'])]
+    ppart.controls.extend(sustain_controls)
 
     if return_alignment:
         alignment = []
@@ -262,7 +289,7 @@ def decode_time(score_onsets,
         # decode duration
         performance[jj, 1] = decode_articulation(
             score_durations=score_durations[jj],
-            articulation_parameter=parameters["articulation_ratio"][jj],
+            articulation_parameter=parameters["articulation_log"][jj],
             beat_period=beat_period[i],
         )
 
@@ -289,8 +316,8 @@ def encode_articulation(
         # Grace notes have an articulation ratio of 1
         sd[grace_mask] = 1
         pd[grace_mask] = bp
-        # articulation[idx] = np.log2(pd / (bp * sd))
-        articulation[idx] = pd / (bp * sd) # consider absolute ratio instead of log
+        articulation[idx] = np.log2(pd / (bp * sd))
+        # articulation[idx] = pd / (bp * sd) # consider absolute ratio instead of log
 
     return articulation
 
@@ -375,11 +402,11 @@ def encode_tempo(
     )
 
     # Initialize array of parameters
-    parameter_names = ["beat_period", "velocity", "timing", "articulation_ratio"]
+    parameter_names = ["beat_period", "velocity", "timing", "articulation_log", "pedal"]
     if beat_normalization != "beat_period":
         parameter_names += tempo_param_names
     parameters = np.zeros(len(score), dtype=[(pn, "f4") for pn in parameter_names])
-    parameters["articulation_ratio"] = articulation_param
+    parameters["articulation_log"] = articulation_param
     for i, jj in enumerate(unique_onset_idxs):
         parameters["beat_period"][jj] = beat_period[i]
         # Defined as in Eq. (3.9) in Thesis (pp. 34)
@@ -616,9 +643,15 @@ def to_matched_score(score: ScoreLike,
     """
 
     # remove repetitions from aligment note ids
+    alignment_, sids = [], []
     for a in alignment:
-        if a["label"] == "match":
-            a["score_id"] = str(a["score_id"])
+        if a["label"] == "match" or a['label'] == "deletion":
+            if '_' in a["score_id"]:
+                a['score_id'] = a['score_id'][4:]
+            if a['score_id'] not in sids:
+                alignment_.append(a)
+                sids.append(a['score_id'])
+    alignment = alignment_
 
     feature_functions = None
     if include_score_markings:
@@ -674,7 +707,10 @@ def to_matched_score(score: ScoreLike,
         fields += [("voice", "i4")]
         fields += [(field, sn.dtype.fields[field][0]) for field in sn.dtype.fields if "feature" in field]
 
-    return np.array(ms, dtype=fields), snote_ids
+    ms= np.array(ms, dtype=fields)
+    pad_mask = ms['velocity'] == -1
+
+    return ms, snote_ids, pad_mask
 
 
 def get_time_maps_from_alignment(
@@ -998,4 +1034,35 @@ TEMPO_NORMALIZATION = dict(
                                   param_names=('beat_period_standardized',
                                                'beat_period_mean', 'beat_period_std'))
 )
+
+######### Pedal functions ############################
+
+def pedal_ramp(ppart: PerformedPart,
+               m_score: np.ndarray):
+    """Pedal ramp in the same shape as the m_score. (copied from performance_features)
+
+    Returns:
+    * onset_offset pedal value as structured array
+    * pramp : a ramp function that ranges from 0
+                  to 127 with the change of sustain pedal
+    """
+    pedal_controls = ppart.controls
+    W = np.zeros((len(m_score), 2))
+    onset_timepoints = m_score['p_onset']
+    offset_timepoints = m_score['p_onset'] + m_score['p_duration']
+
+    timepoints = [control['time'] for control in pedal_controls]
+    values = [control['value'] for control in pedal_controls]
+
+    if len(timepoints) <= 1: # the case there is no pedal
+        timepoints, values = [0, 0], [0, 0]
+
+    agg_ramp_func = interp1d(timepoints, values, bounds_error=False, fill_value=0)
+    W[:, 0] = agg_ramp_func(onset_timepoints)
+    W[:, 1] = agg_ramp_func(offset_timepoints)
+
+    # Filter out NaN values
+    W[np.isnan(W)] = 0.0
+
+    return np.array([tuple(i) for i in W], dtype=[("onset_value", "f4"), ("offset_value", "f4")]), agg_ramp_func
 

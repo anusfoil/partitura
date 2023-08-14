@@ -152,8 +152,9 @@ def save_performance_midi(
         for n in performed_part.notes:
             track = n.get("track", 0)
             ch = n.get("channel", 1)
-            t_on = int(np.round(10**6 * ppq * n["note_on"] / mpq))
-            t_off = int(np.round(10**6 * ppq * n["note_off"] / mpq))
+            t_on = max(int(np.round(10**6 * ppq * n["note_on"] / mpq)), 0)
+            t_off = max(int(np.round(10**6 * ppq * n["note_off"] / mpq)), 0)
+
             vel = n.get("velocity", default_velocity)
             track_events[track][t_on].append(
                 Message("note_on", note=n["midi_pitch"], velocity=vel, channel=ch)
