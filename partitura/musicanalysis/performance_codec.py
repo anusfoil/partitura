@@ -219,7 +219,7 @@ def decode_performance(
     sustain_controls = [{
         "number": 64,
         "time": onsets_durations[idx][0],
-        "value": pedal_param,
+        "value": int(pedal_param),
         } for idx, pedal_param in enumerate(performance_array['pedal'])]
     ppart.controls.extend(sustain_controls)
 
@@ -600,9 +600,10 @@ def tempo_by_derivative(score_onsets, performed_onsets,
     eq_onsets = perf_info['u_onset']
 
     # Monotonize times
-    eq_onset_mt, unique_s_onsets_mt = monotonize_times(eq_onsets,
-                                                       deltas=unique_s_onsets)
-    # Function that that interpolates the equivalent performed onsets
+    eq_onset_mt, unique_s_onsets_mt = monotonize_times(
+        eq_onsets, x=unique_s_onsets
+    )    # Function that that interpolates the equivalent performed onsets
+
     # as a function of the score onset.
     onset_fun = interp1d(unique_s_onsets_mt, eq_onset_mt, kind='linear',
                          fill_value='extrapolate')
