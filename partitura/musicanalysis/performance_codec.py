@@ -109,9 +109,9 @@ def encode_performance(
                             parameters["pedal"][~pad_mask].mean())
 
     if return_u_onset_idx:
-        return parameters, snote_ids, unique_onset_idxs, pad_mask
+        return parameters, snote_ids, unique_onset_idxs, pad_mask, m_score
     else:
-        return parameters, snote_ids, pad_mask
+        return parameters, snote_ids, pad_mask, m_score
 
 
 @deprecated_alias(part='score')
