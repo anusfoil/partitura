@@ -144,7 +144,7 @@ def compute_matched_score(score: ScoreLike,
     m_score : np strutured array
     unique_onset_idxs : list
     """
-    m_score, _ = to_matched_score(score, performance, alignment, include_score_markings=True)
+    m_score, _, _ = to_matched_score(score, performance, alignment, include_score_markings=True)
     (time_params, unique_onset_idxs) = encode_tempo(
         score_onsets=m_score["onset"],
         performed_onsets=m_score["p_onset"],
@@ -681,7 +681,7 @@ def pedal_feature(m_score : list,
             the threshold (default 10), piece level
     """  
     
-    onset_offset_pedals, ramp_func, final_time = pedal_ramp(performance.performedparts[0], m_score)
+    onset_offset_pedals, ramp_func, final_time = pedal_ramp(performance, m_score)
 
     x = np.linspace(0, final_time, 500)
     y = ramp_func(x)
