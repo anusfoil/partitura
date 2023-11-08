@@ -750,60 +750,60 @@ def pedal_ramp(ppart: PerformedPart,
 
 ### Phrasing
 
-def phrasing_feature(m_score : List, 
-                        unique_onset_idxs : List, 
-                        performance : PerformanceLike, 
-                        plot : bool = False,
-                        **kwargs):
-    """
-    Unfinished! after finishing will update to phrasing_feature
-    rubato:
-        Model the final tempo curve (last 2 measures) using Friberg & Sundberg’s kinematic model: 
-            (https://www.researchgate.net/publication/220723460_Evidence_for_Pianist-specific_Rubato_Style_in_Chopin_Nocturnes)
-        v(x) = (1 + (w^q − 1) * x)^(1/q), 
+# def phrasing_feature(m_score : List, 
+#                         unique_onset_idxs : List, 
+#                         performance : PerformanceLike, 
+#                         plot : bool = False,
+#                         **kwargs):
+#     """
+#     Unfinished! after finishing will update to phrasing_feature
+#     rubato:
+#         Model the final tempo curve (last 2 measures) using Friberg & Sundberg’s kinematic model: 
+#             (https://www.researchgate.net/publication/220723460_Evidence_for_Pianist-specific_Rubato_Style_in_Chopin_Nocturnes)
+#         v(x) = (1 + (w^q − 1) * x)^(1/q), 
 
-    Parameters
-    ----------
-    m_score : structured array
-        correspondance between score and performance notes, with score markings. 
-    unique_onset_idxs : list
-        a list of arrays with the note indexes that have the same onset
+#     Parameters
+#     ----------
+#     m_score : structured array
+#         correspondance between score and performance notes, with score markings. 
+#     unique_onset_idxs : list
+#         a list of arrays with the note indexes that have the same onset
         
-    Returns
-    -------
-    pharsing_ : structured array
-        structured array on the (phrase?) level with fields w and q. 
-        w [0, 1]: the final tempo (normalized between 0 and 1, assuming normalized)
-        q [-10, 10]: variation in curvature. Positive for convex and negative for concave (assuming decreasing ramp)
-    """
+#     Returns
+#     -------
+#     pharsing_ : structured array
+#         structured array on the (phrase?) level with fields w and q. 
+#         w [0, 1]: the final tempo (normalized between 0 and 1, assuming normalized)
+#         q [-10, 10]: variation in curvature. Positive for convex and negative for concave (assuming decreasing ramp)
+#     """
 
-    endings = get_phrase_end(m_score, unique_onset_idxs)
-    phrasing_ = np.zeros(len(m_score), dtype=[("rubato_w", "f4"), ("rubato_q", "f4")])     
+#     endings = get_phrase_end(m_score, unique_onset_idxs)
+#     phrasing_ = np.zeros(len(m_score), dtype=[("rubato_w", "f4"), ("rubato_q", "f4")])     
 
-    for i, ending in enumerate(endings):
-        (start, end), (xdata, ydata) = ending
+#     for i, ending in enumerate(endings):
+#         (start, end), (xdata, ydata) = ending
 
-        if len(xdata) >= 2: # sometimes the ending doesn't have enough beats of music event.
-            # normalize x and y. y: initial tempo as 1
-            xdata = (xdata - xdata.min()) * (1 / (xdata.max() - xdata.min()))
-            ydata = (ydata - 0) * (1 / (ydata.max() - 0))
+#         if len(xdata) >= 2: # sometimes the ending doesn't have enough beats of music event.
+#             # normalize x and y. y: initial tempo as 1
+#             xdata = (xdata - xdata.min()) * (1 / (xdata.max() - xdata.min()))
+#             ydata = (ydata - 0) * (1 / (ydata.max() - 0))
 
-            params_init = np.array([0.5, -1])
-            res = least_squares(freiberg_kinematic, params_init, args=(xdata, ydata))
+#             params_init = np.array([0.5, -1])
+#             res = least_squares(freiberg_kinematic, params_init, args=(xdata, ydata))
             
-            w, q = res.x
-            phrasing_[start:end]['rubato_w'] = w
-            phrasing_[start:end]['rubato_q'] = q
+#             w, q = res.x
+#             phrasing_[start:end]['rubato_w'] = w
+#             phrasing_[start:end]['rubato_q'] = q
 
-            if plot:
-                plt.scatter(xdata, ydata, marker="+", c="red")
-                xline = np.linspace(0, 1, 100)
-                plt.plot(xline, (1 + (w ** q - 1) * xline) ** (1/q))
-                plt.ylim(0, 1.2)
-                plt.title(f"Friberg & Sundberg kinematic rubato curve with w={round(w, 2)} and q={round(q, 2)}")
-                plt.show()
+#             if plot:
+#                 plt.scatter(xdata, ydata, marker="+", c="red")
+#                 xline = np.linspace(0, 1, 100)
+#                 plt.plot(xline, (1 + (w ** q - 1) * xline) ** (1/q))
+#                 plt.ylim(0, 1.2)
+#                 plt.title(f"Friberg & Sundberg kinematic rubato curve with w={round(w, 2)} and q={round(q, 2)}")
+#                 plt.show()
 
-    return {"features": phrasing_}
+#     return {"features": phrasing_}
 
 
 def freiberg_kinematic(params, xdata, ydata):

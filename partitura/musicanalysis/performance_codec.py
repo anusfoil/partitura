@@ -23,7 +23,7 @@ except ImportError:
 
 
 from partitura.score import Part, ScoreLike
-from partitura.performance import PerformedPart, PerformanceLike
+from partitura.performance import PerformedPart, PerformanceLike, Performance
 from partitura.musicanalysis import note_features
 from partitura.utils.misc import deprecated_alias
 from partitura.utils.generic import interp1d, monotonize_times
@@ -94,7 +94,10 @@ def encode_performance(
     dynamics_params = np.array(m_score["velocity"] / 127.0, dtype=[("velocity", "f4")])
 
     # pedal_params
-    onset_offset_pedals, ramp_func = pedal_ramp(performance.performedparts[0], m_score)
+    if isinstance(performance, Performance):
+        onset_offset_pedals, ramp_func = pedal_ramp(performance.performedparts[0], m_score)
+    else:
+        onset_offset_pedals, ramp_func = pedal_ramp(performance, m_score)
 
     # Fixing random error
     parameters = time_params
@@ -668,13 +671,15 @@ def to_matched_score(score: ScoreLike,
     note_pairs = [
         (part_by_id[a["score_id"]], ppart_by_id[a["performance_id"]])
         for a in alignment
-        if (a["label"] == "match" and a["score_id"] in part_by_id)
+        if (a["label"] == "match" and a["score_id"] in part_by_id and a["performance_id"] in ppart_by_id)
     ]
     note_pairs.extend([
         (part_by_id[a["score_id"]], None)
         for a in alignment
         if (a["label"] == "deletion" and a["score_id"] in part_by_id)        
     ])
+    # for sn, pn in note_pairs:
+    #     assert(sn['pitch'] == pn['pitch'])
     ms = []
     # sort according to onset (primary) and pitch (secondary)
     pitch_onset = [(sn['pitch'].item(), sn['onset_div'].item()) for sn, _ in note_pairs]

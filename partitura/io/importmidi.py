@@ -132,8 +132,9 @@ def load_performance_midi(
         t = 0
         ttick = 0
 
-        sounding_notes = {}
+        sounding_notes = defaultdict(list)
 
+        on_count, on_added_count, off_count = 0, 0, 0
         for msg in track:
 
             # update time deltas when they arrive
@@ -171,7 +172,6 @@ def load_performance_midi(
                 )
 
             else:
-
                 note_on = msg.type == "note_on"
                 note_off = msg.type == "note_off"
 
@@ -183,34 +183,33 @@ def load_performance_midi(
 
                 # start note if it's a 'note on' event with velocity > 0
                 if note_on and msg.velocity > 0:
-
+                    on_count += 1
                     # save the onset time and velocity
-                    sounding_notes[note] = (t, ttick, msg.velocity)
+                    sounding_notes[note].append((t, ttick, msg.velocity))
 
                 # end note if it's a 'note off' event or 'note on' with velocity 0
                 elif note_off or (note_on and msg.velocity == 0):
-
+                    off_count += 1
                     if note not in sounding_notes:
                         warnings.warn("ignoring MIDI message %s" % msg)
                         continue
 
                     # append the note to the list associated with the channel
-
                     notes.append(
                         dict(
                             # id=f"n{len(notes)}",
                             midi_pitch=msg.note,
-                            note_on=(sounding_notes[note][0]),
-                            note_on_tick=(sounding_notes[note][1]),
+                            note_on=(sounding_notes[note][0][0]),
+                            note_on_tick=(sounding_notes[note][0][1]),
                             note_off=(t),
                             note_off_tick=(ttick),
                             track=i,
                             channel=msg.channel,
-                            velocity=sounding_notes[note][2],
+                            velocity=sounding_notes[note][0][2],
                         )
                     )
                     # remove hash from dict
-                    del sounding_notes[note]
+                    sounding_notes[note].pop()
 
         # fix note ids so that it is sorted lexicographically
         # by onset, pitch, offset, channel and track
